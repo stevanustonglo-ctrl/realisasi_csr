@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title></title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/multi-style-layer.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="data/LAHANPENGGANTI_1.js"></script>
+        <script src="data/LAHANPENOLAKAN_2.js"></script>
+        <script src="data/REALISASIFINAL_3.js"></script>
+        <script src="data/GALENGAN_4.js"></script>
+        <script src="data/SALURANPEMBUANG_5.js"></script>
+        <script src="data/SALURANTERSIER_6.js"></script>
+        <script src="data/GORONGGORONG_7.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+
+            if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
+              highlightLayer.setStyle({
+                color: 'rgba(255, 255, 0, 1.00)',
+              });
+            } else {
+              highlightLayer.setStyle({
+                fillColor: 'rgba(255, 255, 0, 1.00)',
+                fillOpacity: 1
+              });
+            }
+            highlightLayer.openPopup();
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[-5.301679495711052,119.4972700571568],[-5.284288768945098,119.52647764179322]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/qgis2web/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    var img = popup._contentNode.querySelector('td img');
+                    if (img) {
+                        // If already loaded (cache), update immediately
+                        if (img.complete && img.naturalHeight > 0) {
+                            popup.update();
+                        } else {
+                            img.addEventListener('load', function() {
+                                popup.update();
+                            });
+                            img.addEventListener('error', function() {
+                                popup.update();
+                            });
+                        }
+                    }
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_GoogleSatellite_0');
+        map.getPane('pane_GoogleSatellite_0').style.zIndex = 400;
+        var layer_GoogleSatellite_0 = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            pane: 'pane_GoogleSatellite_0',
+            opacity: 1.0,
+            attribution: '<a href="https://www.google.at/permissions/geoguidelines/attr-guide.html">Map data ©2015 Google</a>',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_GoogleSatellite_0;
+        function pop_LAHANPENGGANTI_1(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NO PTK'] !== null ? autolinker.link(String(feature.properties['NO PTK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['PEMILIK'] !== null ? autolinker.link(String(feature.properties['PEMILIK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['VOLUME'] !== null ? autolinker.link(String(feature.properties['VOLUME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        var pattern_LAHANPENGGANTI_1_0 = new L.StripePattern({
+            weight: 0.3,
+            spaceWeight: 2.0,
+            color: '#04cff3',
+            opacity: 1.0,
+            spaceOpacity: 0,
+            angle: 225
+        });
+        pattern_LAHANPENGGANTI_1_0.addTo(map);
+        function style_LAHANPENGGANTI_1_0() {
+            return {
+                pane: 'pane_LAHANPENGGANTI_1',
+                stroke: false,
+                fillOpacity: 1,
+                fillPattern: pattern_LAHANPENGGANTI_1_0,
+                interactive: true,
+            }
+        }
+        function style_LAHANPENGGANTI_1_1() {
+            return {
+                pane: 'pane_LAHANPENGGANTI_1',
+                opacity: 1,
+                color: 'rgba(4,207,243,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 2.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_LAHANPENGGANTI_1');
+        map.getPane('pane_LAHANPENGGANTI_1').style.zIndex = 401;
+        map.getPane('pane_LAHANPENGGANTI_1').style['mix-blend-mode'] = 'normal';
+        var layer_LAHANPENGGANTI_1 = new L.geoJson.multiStyle(json_LAHANPENGGANTI_1, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_LAHANPENGGANTI_1',
+            layerName: 'layer_LAHANPENGGANTI_1',
+            pane: 'pane_LAHANPENGGANTI_1',
+            onEachFeature: pop_LAHANPENGGANTI_1,
+            styles: [style_LAHANPENGGANTI_1_0,style_LAHANPENGGANTI_1_1,]
+        });
+        bounds_group.addLayer(layer_LAHANPENGGANTI_1);
+        map.addLayer(layer_LAHANPENGGANTI_1);
+        function pop_LAHANPENOLAKAN_2(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NO PTK'] !== null ? autolinker.link(String(feature.properties['NO PTK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['VOLUME'] !== null ? autolinker.link(String(feature.properties['VOLUME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        var pattern_LAHANPENOLAKAN_2_0 = new L.StripePattern({
+            weight: 0.3,
+            spaceWeight: 2.0,
+            color: '#f5080d',
+            opacity: 1.0,
+            spaceOpacity: 0,
+            angle: 315
+        });
+        pattern_LAHANPENOLAKAN_2_0.addTo(map);
+        function style_LAHANPENOLAKAN_2_0() {
+            return {
+                pane: 'pane_LAHANPENOLAKAN_2',
+                stroke: false,
+                fillOpacity: 1,
+                fillPattern: pattern_LAHANPENOLAKAN_2_0,
+                interactive: true,
+            }
+        }
+        function style_LAHANPENOLAKAN_2_1() {
+            return {
+                pane: 'pane_LAHANPENOLAKAN_2',
+                opacity: 1,
+                color: 'rgba(245,8,13,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 2.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_LAHANPENOLAKAN_2');
+        map.getPane('pane_LAHANPENOLAKAN_2').style.zIndex = 402;
+        map.getPane('pane_LAHANPENOLAKAN_2').style['mix-blend-mode'] = 'normal';
+        var layer_LAHANPENOLAKAN_2 = new L.geoJson.multiStyle(json_LAHANPENOLAKAN_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_LAHANPENOLAKAN_2',
+            layerName: 'layer_LAHANPENOLAKAN_2',
+            pane: 'pane_LAHANPENOLAKAN_2',
+            onEachFeature: pop_LAHANPENOLAKAN_2,
+            styles: [style_LAHANPENOLAKAN_2_0,style_LAHANPENOLAKAN_2_1,]
+        });
+        bounds_group.addLayer(layer_LAHANPENOLAKAN_2);
+        map.addLayer(layer_LAHANPENOLAKAN_2);
+        function pop_REALISASIFINAL_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NO PTK'] !== null ? autolinker.link(String(feature.properties['NO PTK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['PEMILIK'] !== null ? autolinker.link(String(feature.properties['PEMILIK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['VOLUME'] !== null ? autolinker.link(String(feature.properties['VOLUME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['layer'] !== null ? autolinker.link(String(feature.properties['layer']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['path'] !== null ? autolinker.link(String(feature.properties['path']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_REALISASIFINAL_3_0() {
+            return {
+                pane: 'pane_REALISASIFINAL_3',
+                opacity: 1,
+                color: 'rgba(3,234,250,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 4.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_REALISASIFINAL_3');
+        map.getPane('pane_REALISASIFINAL_3').style.zIndex = 403;
+        map.getPane('pane_REALISASIFINAL_3').style['mix-blend-mode'] = 'normal';
+        var layer_REALISASIFINAL_3 = new L.geoJson(json_REALISASIFINAL_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_REALISASIFINAL_3',
+            layerName: 'layer_REALISASIFINAL_3',
+            pane: 'pane_REALISASIFINAL_3',
+            onEachFeature: pop_REALISASIFINAL_3,
+            style: style_REALISASIFINAL_3_0,
+        });
+        bounds_group.addLayer(layer_REALISASIFINAL_3);
+        map.addLayer(layer_REALISASIFINAL_3);
+        function pop_GALENGAN_4(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['pkuid'] !== null ? autolinker.link(String(feature.properties['pkuid']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NO PTK'] !== null ? autolinker.link(String(feature.properties['NO PTK']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['PANJANG'] !== null ? autolinker.link(String(feature.properties['PANJANG']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_GALENGAN_4_0() {
+            return {
+                pane: 'pane_GALENGAN_4',
+                opacity: 1,
+                color: 'rgba(1,8,251,1.0)',
+                dashArray: '',
+                lineCap: 'round',
+                lineJoin: 'round',
+                weight: 4.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_GALENGAN_4');
+        map.getPane('pane_GALENGAN_4').style.zIndex = 404;
+        map.getPane('pane_GALENGAN_4').style['mix-blend-mode'] = 'normal';
+        var layer_GALENGAN_4 = new L.geoJson(json_GALENGAN_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_GALENGAN_4',
+            layerName: 'layer_GALENGAN_4',
+            pane: 'pane_GALENGAN_4',
+            onEachFeature: pop_GALENGAN_4,
+            style: style_GALENGAN_4_0,
+        });
+        bounds_group.addLayer(layer_GALENGAN_4);
+        map.addLayer(layer_GALENGAN_4);
+        function pop_SALURANPEMBUANG_5(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['PANJANG'] !== null ? autolinker.link(String(feature.properties['PANJANG']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_SALURANPEMBUANG_5_0() {
+            return {
+                pane: 'pane_SALURANPEMBUANG_5',
+                opacity: 1,
+                color: 'rgba(4,247,85,1.0)',
+                dashArray: '',
+                lineCap: 'round',
+                lineJoin: 'round',
+                weight: 4.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_SALURANPEMBUANG_5');
+        map.getPane('pane_SALURANPEMBUANG_5').style.zIndex = 405;
+        map.getPane('pane_SALURANPEMBUANG_5').style['mix-blend-mode'] = 'normal';
+        var layer_SALURANPEMBUANG_5 = new L.geoJson(json_SALURANPEMBUANG_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_SALURANPEMBUANG_5',
+            layerName: 'layer_SALURANPEMBUANG_5',
+            pane: 'pane_SALURANPEMBUANG_5',
+            onEachFeature: pop_SALURANPEMBUANG_5,
+            style: style_SALURANPEMBUANG_5_0,
+        });
+        bounds_group.addLayer(layer_SALURANPEMBUANG_5);
+        map.addLayer(layer_SALURANPEMBUANG_5);
+        function pop_SALURANTERSIER_6(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['pkuid'] !== null ? autolinker.link(String(feature.properties['pkuid']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['PANJANG'] !== null ? autolinker.link(String(feature.properties['PANJANG']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_SALURANTERSIER_6_0() {
+            return {
+                pane: 'pane_SALURANTERSIER_6',
+                opacity: 1,
+                color: 'rgba(252,30,2,1.0)',
+                dashArray: '',
+                lineCap: 'round',
+                lineJoin: 'round',
+                weight: 4.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_SALURANTERSIER_6');
+        map.getPane('pane_SALURANTERSIER_6').style.zIndex = 406;
+        map.getPane('pane_SALURANTERSIER_6').style['mix-blend-mode'] = 'normal';
+        var layer_SALURANTERSIER_6 = new L.geoJson(json_SALURANTERSIER_6, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_SALURANTERSIER_6',
+            layerName: 'layer_SALURANTERSIER_6',
+            pane: 'pane_SALURANTERSIER_6',
+            onEachFeature: pop_SALURANTERSIER_6,
+            style: style_SALURANTERSIER_6_0,
+        });
+        bounds_group.addLayer(layer_SALURANTERSIER_6);
+        map.addLayer(layer_SALURANTERSIER_6);
+        function pop_GORONGGORONG_7(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['TITIK KE'] !== null ? autolinker.link(String(feature.properties['TITIK KE']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['POKTAN'] !== null ? autolinker.link(String(feature.properties['POKTAN']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DESA'] !== null ? autolinker.link(String(feature.properties['DESA']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_GORONGGORONG_7_0() {
+            return {
+                pane: 'pane_GORONGGORONG_7',
+                radius: 6.4,
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(235,0,35,1.0)',
+                interactive: true,
+            }
+        }
+        function style_GORONGGORONG_7_1() {
+            return {
+                pane: 'pane_GORONGGORONG_7',
+                radius: 1.4,
+                opacity: 1,
+                color: 'rgba(0,0,0,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(235,0,35,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_GORONGGORONG_7');
+        map.getPane('pane_GORONGGORONG_7').style.zIndex = 407;
+        map.getPane('pane_GORONGGORONG_7').style['mix-blend-mode'] = 'normal';
+        var layer_GORONGGORONG_7 = new L.geoJson.multiStyle(json_GORONGGORONG_7, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_GORONGGORONG_7',
+            layerName: 'layer_GORONGGORONG_7',
+            pane: 'pane_GORONGGORONG_7',
+            onEachFeature: pop_GORONGGORONG_7,
+            pointToLayers: [function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_GORONGGORONG_7_0(feature));
+            },function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_GORONGGORONG_7_1(feature));
+            },
+        ]});
+        bounds_group.addLayer(layer_GORONGGORONG_7);
+        map.addLayer(layer_GORONGGORONG_7);
+        var overlaysTree = [
+            {label: '<img src="legend/GORONGGORONG_7.png" /> GORONG-GORONG', layer: layer_GORONGGORONG_7},
+            {label: '<img src="legend/SALURANTERSIER_6.png" /> SALURAN TERSIER', layer: layer_SALURANTERSIER_6},
+            {label: '<img src="legend/SALURANPEMBUANG_5.png" /> SALURAN PEMBUANG', layer: layer_SALURANPEMBUANG_5},
+            {label: '<img src="legend/GALENGAN_4.png" /> GALENGAN ', layer: layer_GALENGAN_4},
+            {label: '<img src="legend/REALISASIFINAL_3.png" /> REALISASI FINAL', layer: layer_REALISASIFINAL_3},
+            {label: '<img src="legend/LAHANPENOLAKAN_2.png" /> LAHAN PENOLAKAN', layer: layer_LAHANPENOLAKAN_2},
+            {label: '<img src="legend/LAHANPENGGANTI_1.png" /> LAHAN PENGGANTI', layer: layer_LAHANPENGGANTI_1},
+            {label: "Google Satellite", layer: layer_GoogleSatellite_0, radioGroup: 'bm' },]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        var i = 0;
+        layer_LAHANPENGGANTI_1.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['NO PTK'] !== null?String('<div style="color: #e31a1c; font-size: 10pt; font-weight: bold; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['NO PTK']) + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_LAHANPENGGANTI_1'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        var i = 0;
+        layer_LAHANPENOLAKAN_2.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['NO PTK'] !== null?String('<div style="color: #ffffff; font-size: 10pt; font-weight: bold; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['NO PTK']) + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_LAHANPENOLAKAN_2'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        var i = 0;
+        layer_REALISASIFINAL_3.eachLayer(function(layer) {
+            var context = {
+                feature: layer.feature,
+                variables: {}
+            };
+            layer.bindTooltip((layer.feature.properties['NO PTK'] !== null?String('<div style="color: #ffffff; font-size: 10pt; font-weight: bold; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['NO PTK']) + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_REALISASIFINAL_3'});
+            labels.push(layer);
+            totalMarkers += 1;
+              layer.added = true;
+              addLabel(layer, i);
+              i++;
+        });
+        resetLabels([layer_LAHANPENGGANTI_1,layer_LAHANPENOLAKAN_2,layer_REALISASIFINAL_3]);
+        map.on("zoomend", function(){
+            resetLabels([layer_LAHANPENGGANTI_1,layer_LAHANPENOLAKAN_2,layer_REALISASIFINAL_3]);
+        });
+        map.on("layeradd", function(){
+            resetLabels([layer_LAHANPENGGANTI_1,layer_LAHANPENOLAKAN_2,layer_REALISASIFINAL_3]);
+        });
+        map.on("layerremove", function(){
+            resetLabels([layer_LAHANPENGGANTI_1,layer_LAHANPENOLAKAN_2,layer_REALISASIFINAL_3]);
+        });
+        </script>        
+    </body>
+</html>
